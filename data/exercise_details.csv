@@ -1,0 +1,31 @@
+Exercise Type,Experience Level,Sets,Reps,Time per Set (seconds),Time per Rep (seconds),Rest Between Sets (seconds)
+Strength,Beginner,3,12,0,3,60
+Strength,Intermediate,4,10,0,3,60
+Strength,Advanced,5,8,0,3,90
+Activation,Beginner,2,15,0,2,30
+Activation,Intermediate,3,12,0,2,30
+Activation,Advanced,3,12,0,2,30
+Warmup,Beginner,2,15,0,2,30
+Warmup,Intermediate,3,12,0,2,30
+Warmup,Advanced,3,12,0,2,30
+Conditioning,Beginner,3,0,30,0,45
+Conditioning,Intermediate,4,0,40,0,45
+Conditioning,Advanced,5,0,50,0,30
+Olympic Weightlifting,Beginner,3,8,0,4,60
+Olympic Weightlifting,Intermediate,4,8,0,4,60
+Olympic Weightlifting,Advanced,5,6,0,4,90
+SMR,Beginner,2,0,30,0,30
+SMR,Intermediate,2,0,45,0,30
+SMR,Advanced,2,0,60,0,30
+Plyometrics,Beginner,3,10,0,2,60
+Plyometrics,Intermediate,4,12,0,2,60
+Plyometrics,Advanced,5,15,0,2,45
+Powerlifting,Beginner,3,5,0,4,120
+Powerlifting,Intermediate,4,4,0,4,120
+Powerlifting,Advanced,5,3,0,4,180
+Strongman,Beginner,3,8,0,4,90
+Strongman,Intermediate,4,6,0,4,90
+Strongman,Advanced,5,5,0,4,90
+Stretching,Beginner,2,0,30,0,30
+Stretching,Intermediate,2,0,45,0,30
+Stretching,Advanced,3,0,60,0,30
