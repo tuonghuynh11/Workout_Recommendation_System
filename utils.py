@@ -8,6 +8,24 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import GridSearchCV
+from dotenv import load_dotenv
+import os
+import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
+import json
+import logging
+
+# Cấu hình logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+# Load environment variables from .env file
+load_dotenv()
+
+# Cấu hình Gemini API Key
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY not found in environment variables")
+genai.configure(api_key=GEMINI_API_KEY)
 
 # 1. Load mô hình và các đối tượng đã lưu
 best_model = joblib.load('./model/best_model.pkl')
@@ -38,7 +56,7 @@ data['MET'] = data['Exercise Type'].map(lambda x: met_values[le_exercise.classes
 exercise_details_df = pd.read_csv("./data/exercise_details.csv")
 
 # 4. Hàm lọc khuyến nghị
-def filter_recommendations(df, experience_level=None, top_n=5):
+def filter_recommendations(df, experience_level=None, top_n=10):
     sorted_df = df.sort_values('Predicted Suitability', ascending=False).copy()
     sorted_df['Exercise Type Original'] = le_exercise.inverse_transform(sorted_df['Exercise Type'])
     sorted_df['Experience Level Original'] = le_experience.inverse_transform(sorted_df['Experience Level'])
@@ -200,11 +218,187 @@ def predict_for_new_user(new_user_data, experience_level, top_n, target_calories
     if recommended_exercises.empty:
         return None, None
 
-    # Tạo Workout Plans
-    workout_plans = generate_workout_plans(recommended_exercises, target_calories_burned, num_combinations=num_combinations)
+
+   # Tạo Workout Plans bằng Gemini AI
+    workout_plans = generate_workout_plans_with_gemini(new_user_data, recommended_exercises, target_calories_burned, num_combinations)
     
     return recommended_exercises, workout_plans
 
 
+def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, target_calories, num_combinations):
+    # Chuẩn bị thông tin người dùng từ new_user_data
+    gender = "Male" if new_user_data['Gender'][0] == 0 else "Female"
+    experience_level = new_user_data['Experience Level'][0]  # Đã được mã hóa, cần giải mã
+    # experience_level = le_experience.inverse_transform([experience_level])[0]  # Giải mã Experience Level
+    age = new_user_data['Age'][0]
+    bmi = new_user_data['BMI'][0]
+    activity_level =  new_user_data['Activity Level'][0] # Giải mã Activity Level
 
-    
+    # In giá trị target_calories bằng logging
+    logger.info(f'target_calories: {target_calories}')
+
+    # Chuẩn bị danh sách bài tập từ recommended_exercises
+    exercises_str = "\n".join([
+        f"- {row['Name']} ({row['Exercise Type Original']}, {row['Experience Level Original']}, {row['Predicted Calories per Minute']} cal/min)."
+        for _, row in recommended_exercises.iterrows()
+    ])
+
+    # Tạo prompt cho Gemini AI
+    # prompt = f"""
+    #             You are a professional personal trainer. I am a {age}-year-old {gender} with a BMI of {bmi}, a {activity_level} activity level, and a {experience_level} experience level. I want to burn {target_calories} calories per session. Below is a list of recommended exercises for me, along with their type, experience level, and calories burned per minute:
+
+    #             {exercises_str}
+
+    #             Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target). Each plan must include some exercises from the list above, with the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, CaloriesBurned. Additionally, each plan should include the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+
+    #             ```json
+    #             {{
+    #             "exercises": [
+    #                 {{
+    #                 "Name": "",
+    #                 "ExerciseType": "",
+    #                 "ExperienceLevel": "",
+    #                 "Sets": 0,
+    #                 "RepsOrTimePerSet": "",
+    #                 "TimePerSetSeconds": 0,
+    #                 "RestBetweenSetsSeconds": 0,
+    #                 "TotalActiveTimeMinutes": 0,
+    #                 "TotalTimeWithRestMinutes": 0,
+    #                 "CaloriesBurned": 0
+    #                 }}
+    #             ],
+    #             "total_calories_burned": 0,
+    #             "total_completion_time_minutes": 0
+    #             }}
+    #         ```
+    # To ensure variety, aim to use as many different exercises as possible from the list across all workout plans. Ideally, each exercise should be used in at least one of the {num_combinations} workout plans, and each workout plan should include a diverse mix of exercise types (e.g., Warmup, Strength, Conditioning).Adjust the sets, reps, or time per set to ensure the total calories burned for each workout plan is within ±15 calories of {target_calories}.Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. Output the result as a JSON array containing {num_combinations} workout plans.
+    # """
+
+# Đây là prompt dùng caloriesPerMinutes ước tính của Gemini chứ không phải của hệ thống khuyến nghị
+#     prompt = f"""
+#                 You are a professional personal trainer with extensive knowledge of real-world calorie burn rates for various exercises. I am a {age}-year-old {gender} with a BMI of {bmi}, a {activity_level} activity level, and a {experience_level} experience level. I want to burn {target_calories} calories per session. Below is a list of recommended exercises for me, along with their type, experience level, and predicted calories burned per minute (for reference only):
+
+#                 {exercises_str}
+
+#                 Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target). Each plan must include some exercises from the list above, with the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, CaloriesBurned. Additionally, each plan should include the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+
+#                 ```json
+#                 {{
+#                 "exercises": [
+#                     {{
+#                     "Name": "",
+#                     "ExerciseType": "",
+#                     "ExperienceLevel": "",
+#                     "Sets": 0,
+#                     "RepsOrTimePerSet": "",
+#                     "TimePerSetSeconds": 0,
+#                     "RestBetweenSetsSeconds": 0,
+#                     "TotalActiveTimeMinutes": 0,
+#                     "TotalTimeWithRestMinutes": 0,
+#                     "CaloriesBurned": 0
+#                     }}
+#                 ],
+#                 "total_calories_burned": 0,
+#                 "total_completion_time_minutes": 0
+#                 }}```
+#                 When calculating the calories burned for each exercise, do NOT strictly follow the predicted calories per minute provided by the system. Instead, use your knowledge as a professional trainer to estimate the calories burned per minute based on real-world values for the given exercise type and experience level. For example:
+
+#                 Warmup exercises (e.g., stretching, light movements) typically burn 2–5 cal/min.
+#                 Strength exercises (e.g., weightlifting) typically burn 5–8 cal/min.
+#                 Conditioning or cardio exercises (e.g., battling ropes, running) typically burn 8–12 cal/min.
+#                 Important: You MUST ONLY use exercises from the list provided above. Do NOT add any new exercises that are not in the list.To ensure variety, aim to use as many different exercises as possible from the list across all workout plans. Ideally, each exercise should be used in at least one of the {num_combinations} workout plans, and each workout plan should include a diverse mix of exercise types (e.g., Warmup, Strength, Conditioning).Adjust the sets, reps, or time per set to ensure the total calories burned for each workout plan is within ±15 calories of {target_calories}. Ensure the exercises are suitable for a {experience_level}, and output the result as a JSON array containing {num_combinations} workout plans.
+#    """
+    prompt = f"""
+            You are a professional personal trainer. I am a {age}-year-old {gender} with a BMI of {bmi}, a {activity_level} activity level, and a {experience_level} experience level. I want to burn {target_calories} calories per session. Below is a list of recommended exercises for me, along with their type, experience level, and calories burned per minute:
+
+            {exercises_str}
+
+            Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target, i.e., between {target_calories - 15} and {target_calories + 15} calories). Each plan must include ALL exercises from the list above (exactly {len(recommended_exercises)} exercises), ensuring that every exercise in the list is used in each plan. Each plan should be independent, meaning I can choose any single plan to achieve my calorie-burning goal without combining plans.
+
+            Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan should include the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+
+            ```json
+            {{
+            "exercises": [
+                {{
+                "Name": "",
+                "ExerciseType": "",
+                "ExperienceLevel": "",
+                "Sets": 0,
+                "RepsOrTimePerSet": "",
+                "TimePerSetSeconds": 0,
+                "RestBetweenSetsSeconds": 0,
+                "TotalActiveTimeMinutes": 0,
+                "TotalTimeWithRestMinutes": 0,
+                "CaloriesBurned": 0
+                }}
+            ],
+            "total_calories_burned": 0,
+            "total_completion_time_minutes": 0
+            }}
+            ```
+            Follow these steps to create the workout plans:
+
+            Include all exercises in each plan:
+            Each workout plan must include ALL {len(recommended_exercises)} exercises listed above.
+            Do not skip any exercise; every plan must use exactly these {len(recommended_exercises)} exercises in the order they are listed.
+            Calculate the required active time:
+            The average calories burned per minute across all exercises is approximately {sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises):.3f} cal/min.
+            To burn {target_calories} calories, the total active time needed is approximately {target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises)):.1f} minutes.
+            Distribute this time equally across the {len(recommended_exercises)} exercises, so each exercise should have a TotalActiveTimeMinutes of approximately {(target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises))) / len(recommended_exercises):.1f} minutes.
+            Adjust Sets and TimePerSetSeconds:
+            For each exercise, adjust the Sets and TimePerSetSeconds to achieve the required TotalActiveTimeMinutes. For example:
+            If TimePerSetSeconds = 60 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 60 seconds/set.
+            If TimePerSetSeconds = 45 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 45 seconds/set.
+            Choose TimePerSetSeconds between 30 and 120 seconds, and calculate Sets accordingly to match the required TotalActiveTimeMinutes.
+            Set rest time:
+            Use a reasonable RestBetweenSetsSeconds for each exercise (e.g., 30–90 seconds, depending on the exercise type). For example:
+            Warmup, Activation, Stretching, SMR: 30 seconds.
+            Strength, Conditioning, Plyometrics, Olympic Weightlifting: 60–90 seconds.
+            Calculate exercise details:
+            TotalActiveTimeMinutes: Calculate as (Sets × TimePerSetSeconds) ÷ 60, and ensure it matches the required value from step 2.
+            TotalTimeWithRestMinutes: Calculate as (Sets × TimePerSetSeconds + (Sets - 1) × RestBetweenSetsSeconds) ÷ 60.
+            CaloriesBurned: Calculate as TotalActiveTimeMinutes × (calories burned per minute for that exercise). This is the total calories burned for the exercise.
+            Calculate workout plan totals:
+            total_calories_burned: Must be the sum of CaloriesBurned of all exercises in the plan.
+            total_completion_time_minutes: Must be the sum of TotalTimeWithRestMinutes of all exercises in the plan.
+            Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. If the total_calories_burned for any plan is not within {target_calories - 15} to {target_calories + 15} calories, adjust the Sets or TimePerSetSeconds to meet this requirement. Output the result as a JSON array containing {num_combinations} workout plans. Ensure the output is a valid JSON string without any additional text before or after the JSON.
+            """
+    try:
+        model = genai.GenerativeModel('gemini-1.5-pro', generation_config=GenerationConfig(temperature=0.7))
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+        if "json" in response_text:  
+            json_str = response_text.split("json")[1].split("```")[0].strip()
+        else:
+            json_str = response_text
+        # Chuyển đổi JSON string thành Python object
+        workout_plans = json.loads(json_str)
+        # Đảm bảo workout_plans là một list
+        if not isinstance(workout_plans, list):
+            workout_plans = [workout_plans]
+        # Kiểm tra số lượng workout plans
+        if len(workout_plans) < num_combinations:
+            raise ValueError(f"Gemini AI returned only {len(workout_plans)} workout plans, but {num_combinations} were requested")
+        #Validate định dạng của workout_plans
+        for plan in workout_plans:
+            if not isinstance(plan, dict):
+                raise ValueError("Each workout plan must be a dictionary")
+            if "exercises" not in plan or "total_calories_burned" not in plan or "total_completion_time_minutes" not in plan:
+                raise ValueError("Workout plan missing required fields: exercises, total_calories_burned, total_completion_time_minutes")
+            if not isinstance(plan["exercises"], list):
+                raise ValueError("Exercises in workout plan must be a list")
+            for exercise in plan["exercises"]:
+                required_exercise_fields = [
+                "Name", "ExerciseType", "ExperienceLevel", "Sets", "RepsOrTimePerSet",
+                "TimePerSetSeconds", "RestBetweenSetsSeconds", "TotalActiveTimeMinutes",
+                "TotalTimeWithRestMinutes", "CaloriesBurned"
+                ]
+                for field in required_exercise_fields:
+                    if field not in exercise:
+                        raise ValueError(f"Exercise in workout plan missing required field: {field}")
+        return workout_plans[:num_combinations]
+    except json.JSONDecodeError as e:
+        raise Exception(f"Error parsing Gemini AI response as JSON: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error calling Gemini AI: {str(e)}")
