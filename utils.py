@@ -271,7 +271,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
     #             "total_completion_time_minutes": 0
     #             }}
     #         ```
-    # To ensure variety, aim to use as many different exercises as possible from the list across all workout plans. Ideally, each exercise should be used in at least one of the {num_combinations} workout plans, and each workout plan should include a diverse mix of exercise types (e.g., Warmup, Strength, Conditioning).Adjust the sets, reps, or time per set to ensure the total calories burned for each workout plan is within ±15 calories of {target_calories}.Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. Output the result as a JSON array containing {num_combinations} workout plans.
+    # To ensure variety, aim to use as many different exercises as possible from the list across all workout plans. Ideally, each exercise should be used in at least one of the {num_combinations} workout plans, and each workout plan should include a diverse mix of exercise types (e.g., Warmup, Strength, Conditioning).Adjust the sets, reps, or time per set to ensure the total calories burned for each workout plan is within ±15 calories of {target_calories}.Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. Output the result as a JSON array containing {num_combinations} workout plans.Ensure the output is a valid JSON string without any additional text before or after the JSON.
     # """
 
 # Đây là prompt dùng caloriesPerMinutes ước tính của Gemini chứ không phải của hệ thống khuyến nghị
@@ -380,6 +380,29 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
         # Kiểm tra số lượng workout plans
         if len(workout_plans) < num_combinations:
             raise ValueError(f"Gemini AI returned only {len(workout_plans)} workout plans, but {num_combinations} were requested")
+        
+        # Định nghĩa thứ tự hợp lý của các thể loại bài tập
+        exercise_type_order = {
+        "Warmup": 1,
+        "SMR": 2,
+        "Activation": 3,
+        "Plyometrics": 4,
+        "Olympic Weightlifting": 5,
+        "Powerlifting": 6,
+        "Strength": 7,
+        "Strongman": 8,
+        "Conditioning": 9,
+        "Stretching": 10
+        }
+        # Sắp xếp lại các bài tập trong mỗi workout plan theo thứ tự hợp lý
+        for plan in workout_plans:
+            if "exercises" in plan:
+                # Sắp xếp danh sách exercises dựa trên ExerciseType
+                plan["exercises"] = sorted(
+                    plan["exercises"],
+                    key=lambda x: exercise_type_order.get(x["ExerciseType"], 999)  # 999 để các loại không xác định xếp cuối
+                )
+
         #Validate định dạng của workout_plans
         for plan in workout_plans:
             if not isinstance(plan, dict):

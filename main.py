@@ -153,6 +153,10 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
     for plan in workout_plans:
         # Chuyển dữ liệu từ Gemini AI thành DataFrame để xử lý
         plan_df = pd.DataFrame(plan['exercises'])
+
+        # Thêm cột index để bảo toàn thứ tự ban đầu
+        plan_df['original_index'] = plan_df.index
+
         # Nhóm các bài tập trùng lặp (nếu có)
         grouped_plan = plan_df.groupby(['Name', 'ExerciseType', 'ExperienceLevel']).agg({
             'Sets': 'sum',
@@ -161,8 +165,12 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
             'RestBetweenSetsSeconds': 'last',
             'TotalActiveTimeMinutes': 'sum',
             'TotalTimeWithRestMinutes': 'sum',
-            'CaloriesBurned': 'sum'
+            'CaloriesBurned': 'sum',
+            'original_index': 'min'
         }).reset_index()
+
+        # Sắp xếp lại theo thứ tự ban đầu (dựa trên original_index)
+        grouped_plan = grouped_plan.sort_values('original_index').drop(columns=['original_index'])
 
         total_completion_time = grouped_plan['TotalTimeWithRestMinutes'].sum()
         total_completion_time += (len(grouped_plan) - 1) * rest_between_exercises
