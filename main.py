@@ -1,6 +1,6 @@
 # main.py
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import pandas as pd
 import numpy as np  # Thêm import numpy để xử lý np.nan
@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 import os
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
+import logging
+
+# Cấu hình logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
@@ -36,6 +41,7 @@ class WorkoutPlanRequest(BaseModel):
     num_combinations: int = 3
 
 class Exercise(BaseModel):
+    id: str = Field(..., alias='_id')
     Name: str
     Thumbnail: Optional[str] = None
     Video: Optional[str] = None
@@ -53,7 +59,7 @@ class Exercise(BaseModel):
     PredictedCaloriesPerMinute: float
     PredictedSuitability: float
     AdditionalFields: Dict[str, Any]  # Để chứa các cột khác nếu có
-
+    
 class WorkoutPlan(BaseModel):
     exercises: List[dict]
     total_calories_burned: float
@@ -62,6 +68,10 @@ class WorkoutPlan(BaseModel):
 class WorkoutPlanResponse(BaseModel):
     recommended_exercises: List[Exercise]
     workout_plans: List[WorkoutPlan]
+
+@app.get("/")
+def home():
+    return {"health_check": "OK"}
 
 # 2. API endpoint
 @app.post("/generate_workout_plan", response_model=WorkoutPlanResponse, summary="Generate workout plans for a user")
@@ -97,7 +107,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         raise HTTPException(status_code=400, detail=f"No exercises found for {experience_level} level")
 
     # Đọc lại file exercises_dataset.csv để lấy thông tin đầy đủ
-    exercises_dataset = pd.read_csv("./data/exercises_dataset.csv")
+    exercises_dataset = pd.read_csv("./data/exercises_dataset_final.csv")
 
     # Đổi tên cột Muscle Group Image-src thành MuscleGroupImageSrc để khớp với response
     if 'Muscle Group Image-src' in exercises_dataset.columns:
@@ -119,7 +129,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
     for _, row in recommended_exercises_full.iterrows():
         # Lấy tất cả các cột không thuộc các cột chính
         additional_fields = row.drop([
-            'Name', 'Video', 'Target Muscle Group', 'Exercise Type', 'Equipment Required',
+           "id", 'Name', 'Video', 'Target Muscle Group', 'Exercise Type', 'Equipment Required',
             'Mechanics', 'Force Type', 'Experience Level', 'Secondary Muscles',
             'MuscleGroupImageSrc', 'Overview', 'Instructions', 'Tips',
             'Predicted Calories per Minute', 'Predicted Suitability',
@@ -128,6 +138,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         ], errors='ignore').to_dict()
 
         recommended_exercises_list.append({
+            "_id": row.get('id', None), 
             "Name": row['Name'],
             "Thumbnail":row.get('Thumbnail', None),
             "Video": row.get('Video', None),
@@ -168,6 +179,9 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
             'CaloriesBurned': 'sum',
             'original_index': 'min'
         }).reset_index()
+
+        # Thêm trường 'id' cho mỗi bài tập trong workout_plan
+        grouped_plan['_id'] = grouped_plan.apply(lambda row: recommended_exercises_full[recommended_exercises_full['Name'] == row['Name']].iloc[0]['id'], axis=1)
 
         # Sắp xếp lại theo thứ tự ban đầu (dựa trên original_index)
         grouped_plan = grouped_plan.sort_values('original_index').drop(columns=['original_index'])

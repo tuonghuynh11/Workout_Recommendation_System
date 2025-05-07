@@ -365,7 +365,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
             Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. If the total_calories_burned for any plan is not within {target_calories - 15} to {target_calories + 15} calories, adjust the Sets or TimePerSetSeconds to meet this requirement. Output the result as a JSON array containing {num_combinations} workout plans. Ensure the output is a valid JSON string without any additional text before or after the JSON.
             """
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro', generation_config=GenerationConfig(temperature=0.7))
+        model = genai.GenerativeModel('gemini-2.0-flash', generation_config=GenerationConfig(temperature=0.7))
         response = model.generate_content(prompt)
         response_text = response.text.strip()
         if "json" in response_text:  
