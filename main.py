@@ -4,12 +4,37 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import pandas as pd
 import numpy as np  # Thêm import numpy để xử lý np.nan
-from utils import predict_for_new_user, data
+from utils import predict_for_new_user, data, make_cache_key
 from dotenv import load_dotenv
 import os
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 import logging
+
+import redis
+import pickle
+import hashlib
+import json
+import time
+import threading
+import redis.exceptions
+
+CACHE_EXPIRE_SECONDS = 3600 # 1 hour
+REFRESH_THRESHOLD_SECONDS = 300 
+
+## cấu hình redis
+pool = redis.ConnectionPool(
+    host='redis-13116.c1.ap-southeast-1-1.ec2.redns.redis-cloud.com',
+    port=13116,
+    username='default',
+    password='mx3EPshCQtweT1lvrlSO4NeesRtAyzso',
+    decode_responses=False,  # vì dùng pickle
+    max_connections=20       # giới hạn số connection mở ra cùng lúc
+)
+
+r = redis.Redis(connection_pool=pool)
+
+
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -99,6 +124,19 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         'Exercise Type': data['Exercise Type Original'],
         'Experience Level': data['Experience Level Original']
     }
+
+    # Kiểm tra cache redis 
+    cache_key = make_cache_key("generate_workout_plan", new_user_data, experience_level, top_n, target_calories_burned, num_combinations)
+
+    # Try to get cached result
+    try:
+        cached_result = r.get(cache_key)
+        if cached_result:
+            print("🔁 Cache hit")
+            return pickle.loads(cached_result)  # dùng pickle.loads thay vì json.loads
+    except Exception as e:
+        print(f"⚠️ Redis error: {e}")
+
 
     # Dự đoán và tạo Workout Plan
     recommended_exercises, workout_plans = predict_for_new_user(new_user_data, experience_level, top_n, target_calories_burned, num_combinations)
@@ -203,6 +241,20 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
             "total_calories_burned": plan['total_calories_burned'],
             "total_completion_time_minutes": total_completion_time
         })
+
+     # --- Try set cache ---
+     # Set cache đúng
+    try:
+        r.setex(cache_key, CACHE_EXPIRE_SECONDS, pickle.dumps(
+            {
+                "recommended_exercises": recommended_exercises_list,
+                "workout_plans": workout_plans_response
+            }
+        ))
+        print(f"[CACHE] Set: {cache_key}")
+    except Exception as e:
+        print(f"[CACHE] Redis set failed: {str(e)}")
+
     return {
         "recommended_exercises": recommended_exercises_list,
         "workout_plans": workout_plans_response

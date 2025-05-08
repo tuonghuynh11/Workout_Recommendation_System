@@ -14,7 +14,13 @@ import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 import json
 import logging
-
+import redis
+import pickle
+import hashlib
+import json
+import time
+import threading
+import redis.exceptions
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -425,3 +431,38 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
         raise Exception(f"Error parsing Gemini AI response as JSON: {str(e)}")
     except Exception as e:
         raise Exception(f"Error calling Gemini AI: {str(e)}")
+
+def clean_for_json(obj):
+    """
+    Đệ quy biến obj thành kiểu JSON-serializable hoàn toàn.
+    """
+    if isinstance(obj, pd.Series):
+        obj = obj.to_dict()
+    elif isinstance(obj, pd.DataFrame):
+        obj = obj.to_dict(orient='records')
+    elif isinstance(obj, np.generic):  # numpy scalar (int, float)
+        obj = obj.item()
+    elif isinstance(obj, np.ndarray):
+        obj = obj.tolist()
+
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    else:
+        return obj
+
+def make_cache_key(prefix, new_user_data, experience_level, top_n, target_calories_burned, num_combinations):
+    cleaned_user_data = clean_for_json(new_user_data)
+
+    key_source = {
+        "user_data": cleaned_user_data,
+        "experience_level": experience_level,
+        "top_n": top_n,
+        "target_calories": target_calories_burned,
+        "num_combinations": num_combinations
+    }
+
+    key_str = json.dumps(key_source, sort_keys=True)
+    key_hash = hashlib.md5(key_str.encode()).hexdigest()
+    return f"{prefix}:{key_hash}"
