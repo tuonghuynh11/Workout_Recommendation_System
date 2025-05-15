@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import pandas as pd
 import numpy as np  # Thêm import numpy để xử lý np.nan
-from utils import predict_for_new_user, data, make_cache_key
+from utils import predict_for_new_user, data, make_cache_key, get_list_exercises_recommend
 from dotenv import load_dotenv
 import os
 import google.generativeai as genai
@@ -65,6 +65,10 @@ class WorkoutPlanRequest(BaseModel):
     target_calories_burned: float = 400
     num_combinations: int = 3
 
+class RecommendExerciseRequest(BaseModel):
+    user_input: UserInput
+    top_n: int = 10
+
 class Exercise(BaseModel):
     id: str = Field(..., alias='_id')
     Name: str
@@ -95,6 +99,9 @@ class WorkoutPlan(BaseModel):
 class WorkoutPlanResponse(BaseModel):
     recommended_exercises: List[Exercise]
     workout_plans: List[WorkoutPlan]
+
+class ListRecommendExerciseResponse(BaseModel):
+    recommended_exercises: List[Exercise]
 
 @app.get("/")
 def home():
@@ -264,4 +271,113 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         "workout_plans": workout_plans_response
     }
 
-    
+@app.post("/recommend-exercises", response_model=ListRecommendExerciseResponse, summary="Get list recommend exercises")
+async def get_recommend_exercises(request: RecommendExerciseRequest):
+    user_input = request.user_input
+    top_n = request.top_n
+
+    # Lấy thông tin từ request
+    bmi = user_input.BMI
+    age = user_input.Age
+    gender = user_input.Gender
+    activity_level = user_input.ActivityLevel
+    desired_experience_level = user_input.DesiredExperienceLevel
+    experience_level = user_input.ExperienceLevel if user_input.ExperienceLevel else desired_experience_level
+
+    # Chuẩn bị dữ liệu người dùng
+    new_user_data = {
+        'BMI': [bmi] * len(data),
+        'Age': [age] * len(data),
+        'Gender': [gender] * len(data),
+        'Activity Level': [activity_level] * len(data),
+        'Desired Experience Level': [desired_experience_level] * len(data),
+        'Exercise Type': data['Exercise Type Original'],
+        'Experience Level': data['Experience Level Original']
+    }
+
+    # Kiểm tra cache redis 
+    cache_key = make_cache_key("recommend_exercises", new_user_data, experience_level, top_n, 0, 0)
+
+    # Try to get cached result
+    try:
+        cached_result = r.get(cache_key)
+        if cached_result:
+            print("🔁 Cache hit")
+            return pickle.loads(cached_result)  # dùng pickle.loads thay vì json.loads
+    except Exception as e:
+        print(f"⚠️ Redis error: {e}")
+
+
+    # Dự đoán và tạo Workout Plan
+    recommended_exercises = get_list_exercises_recommend(new_user_data, experience_level, top_n)
+
+    if recommended_exercises is None:
+        raise HTTPException(status_code=400, detail=f"No exercises found for {experience_level} level")
+
+    # Đọc lại file exercises_dataset.csv để lấy thông tin đầy đủ
+    exercises_dataset = pd.read_csv("./data/exercises_dataset_final.csv")
+
+    # Đổi tên cột Muscle Group Image-src thành MuscleGroupImageSrc để khớp với response
+    if 'Muscle Group Image-src' in exercises_dataset.columns:
+        exercises_dataset = exercises_dataset.rename(columns={'Muscle Group Image-src': 'MuscleGroupImageSrc'})
+
+    # Lấy thông tin đầy đủ của các bài tập được đề xuất
+    recommended_exercises_full = recommended_exercises.merge(
+        exercises_dataset,
+        left_on=['Name', 'Exercise Type Original', 'Experience Level Original'],
+        right_on=['Name', 'Exercise Type', 'Experience Level'],
+        how='left'
+    )
+
+    # Thay thế tất cả giá trị np.nan bằng None để tránh lỗi validation
+    recommended_exercises_full = recommended_exercises_full.replace({np.nan: None})
+
+    # Chuẩn bị response cho recommended_exercises
+    recommended_exercises_list = []
+    for _, row in recommended_exercises_full.iterrows():
+        # Lấy tất cả các cột không thuộc các cột chính
+        additional_fields = row.drop([
+           "id", 'Name', 'Video', 'Target Muscle Group', 'Exercise Type', 'Equipment Required',
+            'Mechanics', 'Force Type', 'Experience Level', 'Secondary Muscles',
+            'MuscleGroupImageSrc', 'Overview', 'Instructions', 'Tips',
+            'Predicted Calories per Minute', 'Predicted Suitability',
+            'Thumbnail',
+            'Exercise Type Original', 'Experience Level Original'
+        ], errors='ignore').to_dict()
+
+        recommended_exercises_list.append({
+            "_id": row.get('id', None), 
+            "Name": row['Name'],
+            "Thumbnail":row.get('Thumbnail', None),
+            "Video": row.get('Video', None),
+            "TargetMuscleGroup": row.get('Target Muscle Group', None),
+            "ExerciseType": row['Exercise Type Original'],
+            "EquipmentRequired": row.get('Equipment Required', None),
+            "Mechanics": row.get('Mechanics', None),
+            "ForceType": row.get('Force Type', None),
+            "ExperienceLevel": row['Experience Level Original'],
+            "SecondaryMuscles": row.get('Secondary Muscles', None),
+            "MuscleGroupImageSrc": row.get('MuscleGroupImageSrc', None),
+            "Overview": row.get('Overview', None),
+            "Instructions": row.get('Instructions', None),
+            "Tips": row.get('Tips', None),
+            "PredictedCaloriesPerMinute": row['Predicted Calories per Minute'],
+            "PredictedSuitability": row['Predicted Suitability'],
+            "AdditionalFields": additional_fields
+        })
+
+     # --- Try set cache ---
+     # Set cache đúng
+    try:
+        r.setex(cache_key, CACHE_EXPIRE_SECONDS, pickle.dumps(
+            {
+                "recommended_exercises": recommended_exercises_list,
+            }
+        ))
+        print(f"[CACHE] Set: {cache_key}")
+    except Exception as e:
+        print(f"[CACHE] Redis set failed: {str(e)}")
+
+    return {
+        "recommended_exercises": recommended_exercises_list
+    }

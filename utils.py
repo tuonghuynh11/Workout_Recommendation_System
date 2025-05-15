@@ -519,6 +519,38 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
     except Exception as e:
         raise Exception(f"Error calling Gemini AI: {str(e)}")
 
+
+# Hàm lấy danh sách các bài tập khuyến nghị cho người dùng
+def get_list_exercises_recommend(new_user_data, experience_level, top_n):
+    new_user = pd.DataFrame(new_user_data)
+    new_user['Activity Level'] = le_activity.transform(new_user['Activity Level'])
+    new_user['Desired Experience Level'] = le_desired_exp.transform(new_user['Desired Experience Level'])
+    new_user['Exercise Type'] = le_exercise.transform(new_user['Exercise Type'])
+    new_user['Experience Level'] = le_experience.transform(new_user['Experience Level'])
+
+    # Tính BMI_Calorie_Interaction dựa trên MET
+    new_user['BMI_Calorie_Interaction'] = new_user['BMI'] * (data['MET'] * new_user['BMI'][0] / 60)
+    new_user['Age_Activity_Interaction'] = new_user['Age'] * new_user['Activity Level']
+    new_user_numeric_columns = ['BMI', 'Age', 'BMI_Calorie_Interaction', 'Age_Activity_Interaction']
+    new_user[new_user_numeric_columns] = new_user_scaler.transform(new_user[new_user_numeric_columns])
+
+    predictions = best_model.predict(new_user)
+    data['Predicted Calories per Minute'] = predictions[:, 0]
+    data['Predicted Suitability'] = predictions[:, 1]
+
+    # Hiệu chỉnh Suitability
+    mask = data['Experience Level Original'] == experience_level
+    data.loc[mask, 'Predicted Suitability'] = np.clip(data.loc[mask, 'Predicted Suitability'] + 0.25, 0, 1)
+
+    # Lọc bài tập
+    recommended_exercises = filter_recommendations(data, experience_level=experience_level, top_n=top_n)
+    if recommended_exercises.empty:
+        return None, None
+    
+    return recommended_exercises
+
+
+
 def clean_for_json(obj):
     """
     Đệ quy biến obj thành kiểu JSON-serializable hoàn toàn.
