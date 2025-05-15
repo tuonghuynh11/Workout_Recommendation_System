@@ -89,6 +89,8 @@ class WorkoutPlan(BaseModel):
     exercises: List[dict]
     total_calories_burned: float
     total_completion_time_minutes: float
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 class WorkoutPlanResponse(BaseModel):
     recommended_exercises: List[Exercise]
@@ -239,7 +241,9 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
                 'CaloriesBurned': 'CaloriesBurned'
             }).to_dict(orient='records'),
             "total_calories_burned": plan['total_calories_burned'],
-            "total_completion_time_minutes": total_completion_time
+            "total_completion_time_minutes": total_completion_time,
+            "name":plan["name"],
+            "description":plan["description"]
         })
 
      # --- Try set cache ---

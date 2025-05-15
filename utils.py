@@ -314,6 +314,63 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
 #                 Conditioning or cardio exercises (e.g., battling ropes, running) typically burn 8–12 cal/min.
 #                 Important: You MUST ONLY use exercises from the list provided above. Do NOT add any new exercises that are not in the list.To ensure variety, aim to use as many different exercises as possible from the list across all workout plans. Ideally, each exercise should be used in at least one of the {num_combinations} workout plans, and each workout plan should include a diverse mix of exercise types (e.g., Warmup, Strength, Conditioning).Adjust the sets, reps, or time per set to ensure the total calories burned for each workout plan is within ±15 calories of {target_calories}. Ensure the exercises are suitable for a {experience_level}, and output the result as a JSON array containing {num_combinations} workout plans.
 #    """
+    # Promt ổn nhưng không có name và description
+    # prompt = f"""
+    #         You are a professional personal trainer. I am a {age}-year-old {gender} with a BMI of {bmi}, a {activity_level} activity level, and a {experience_level} experience level. I want to burn {target_calories} calories per session. Below is a list of recommended exercises for me, along with their type, experience level, and calories burned per minute:
+
+    #         {exercises_str}
+
+    #         Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target, i.e., between {target_calories - 15} and {target_calories + 15} calories). Each plan must include ALL exercises from the list above (exactly {len(recommended_exercises)} exercises), ensuring that every exercise in the list is used in each plan. Each plan should be independent, meaning I can choose any single plan to achieve my calorie-burning goal without combining plans.
+
+    #         Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan should include the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+
+    #         ```json
+    #         {{
+    #         "exercises": [
+    #             {{
+    #             "Name": "",
+    #             "ExerciseType": "",
+    #             "ExperienceLevel": "",
+    #             "Sets": 0,
+    #             "RepsOrTimePerSet": "",
+    #             "TimePerSetSeconds": 0,
+    #             "RestBetweenSetsSeconds": 0,
+    #             "TotalActiveTimeMinutes": 0,
+    #             "TotalTimeWithRestMinutes": 0,
+    #             "CaloriesBurned": 0
+    #             }}
+    #         ],
+    #         "total_calories_burned": 0,
+    #         "total_completion_time_minutes": 0
+    #         }}
+    #         ```
+    #         Follow these steps to create the workout plans:
+
+    #         Include all exercises in each plan:
+    #         Each workout plan must include ALL {len(recommended_exercises)} exercises listed above.
+    #         Do not skip any exercise; every plan must use exactly these {len(recommended_exercises)} exercises in the order they are listed.
+    #         Calculate the required active time:
+    #         The average calories burned per minute across all exercises is approximately {sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises):.3f} cal/min.
+    #         To burn {target_calories} calories, the total active time needed is approximately {target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises)):.1f} minutes.
+    #         Distribute this time equally across the {len(recommended_exercises)} exercises, so each exercise should have a TotalActiveTimeMinutes of approximately {(target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises))) / len(recommended_exercises):.1f} minutes.
+    #         Adjust Sets and TimePerSetSeconds:
+    #         For each exercise, adjust the Sets and TimePerSetSeconds to achieve the required TotalActiveTimeMinutes. For example:
+    #         If TimePerSetSeconds = 60 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 60 seconds/set.
+    #         If TimePerSetSeconds = 45 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 45 seconds/set.
+    #         Choose TimePerSetSeconds between 30 and 120 seconds, and calculate Sets accordingly to match the required TotalActiveTimeMinutes.
+    #         Set rest time:
+    #         Use a reasonable RestBetweenSetsSeconds for each exercise (e.g., 30–90 seconds, depending on the exercise type). For example:
+    #         Warmup, Activation, Stretching, SMR: 30 seconds.
+    #         Strength, Conditioning, Plyometrics, Olympic Weightlifting: 60–90 seconds.
+    #         Calculate exercise details:
+    #         TotalActiveTimeMinutes: Calculate as (Sets × TimePerSetSeconds) ÷ 60, and ensure it matches the required value from step 2.
+    #         TotalTimeWithRestMinutes: Calculate as (Sets × TimePerSetSeconds + (Sets - 1) × RestBetweenSetsSeconds) ÷ 60.
+    #         CaloriesBurned: Calculate as TotalActiveTimeMinutes × (calories burned per minute for that exercise). This is the total calories burned for the exercise.
+    #         Calculate workout plan totals:
+    #         total_calories_burned: Must be the sum of CaloriesBurned of all exercises in the plan.
+    #         total_completion_time_minutes: Must be the sum of TotalTimeWithRestMinutes of all exercises in the plan.
+    #         Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. If the total_calories_burned for any plan is not within {target_calories - 15} to {target_calories + 15} calories, adjust the Sets or TimePerSetSeconds to meet this requirement. Output the result as a JSON array containing {num_combinations} workout plans. Ensure the output is a valid JSON string without any additional text before or after the JSON.
+    #         """
     prompt = f"""
             You are a professional personal trainer. I am a {age}-year-old {gender} with a BMI of {bmi}, a {activity_level} activity level, and a {experience_level} experience level. I want to burn {target_calories} calories per session. Below is a list of recommended exercises for me, along with their type, experience level, and calories burned per minute:
 
@@ -321,7 +378,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
 
             Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target, i.e., between {target_calories - 15} and {target_calories + 15} calories). Each plan must include ALL exercises from the list above (exactly {len(recommended_exercises)} exercises), ensuring that every exercise in the list is used in each plan. Each plan should be independent, meaning I can choose any single plan to achieve my calorie-burning goal without combining plans.
 
-            Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan should include the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+            Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan must include the plan name (name), the plan description (description), the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
 
             ```json
             {{
@@ -339,6 +396,8 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
                 "CaloriesBurned": 0
                 }}
             ],
+            "name":"",
+            "description":"",
             "total_calories_burned": 0,
             "total_completion_time_minutes": 0
             }}
@@ -368,6 +427,9 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
             Calculate workout plan totals:
             total_calories_burned: Must be the sum of CaloriesBurned of all exercises in the plan.
             total_completion_time_minutes: Must be the sum of TotalTimeWithRestMinutes of all exercises in the plan.
+            Workout plan name and description:
+            name: Create a concise and motivating workout plan name that reflects the goal (e.g., "Fat Burn Circuit", "Cardio Shred", "Full Body Blast", "Strength Builder").
+            description: Write a short and engaging description (1–2 sentences) that summarizes the plan’s goal, targeted fitness level, and what the user will achieve after completing it. 
             Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. If the total_calories_burned for any plan is not within {target_calories - 15} to {target_calories + 15} calories, adjust the Sets or TimePerSetSeconds to meet this requirement. Output the result as a JSON array containing {num_combinations} workout plans. Ensure the output is a valid JSON string without any additional text before or after the JSON.
             """
     try:
