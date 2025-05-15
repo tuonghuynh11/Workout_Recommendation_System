@@ -211,7 +211,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         # Nhóm các bài tập trùng lặp (nếu có)
         grouped_plan = plan_df.groupby(['Name', 'ExerciseType', 'ExperienceLevel']).agg({
             'Sets': 'sum',
-            'RepsOrTimePerSet': 'last',
+            'Reps': 'last',
             'TimePerSetSeconds': 'last',
             'RestBetweenSetsSeconds': 'last',
             'TotalActiveTimeMinutes': 'sum',
@@ -233,7 +233,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
             "exercises": grouped_plan.rename(columns={
                 'ExerciseType': 'ExerciseType',
                 'ExperienceLevel': 'ExperienceLevel',
-                'RepsOrTimePerSet': 'RepsOrTimePerSet',
+                'Reps': 'Reps',
                 'TimePerSetSeconds': 'TimePerSetSeconds',
                 'RestBetweenSetsSeconds': 'RestBetweenSetsSeconds',
                 'TotalActiveTimeMinutes': 'TotalActiveTimeMinutes',

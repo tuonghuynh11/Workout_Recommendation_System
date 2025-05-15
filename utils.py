@@ -378,7 +378,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
 
             Please create {num_combinations} different workout plans, each burning approximately {target_calories} calories (within ±15 calories of the target, i.e., between {target_calories - 15} and {target_calories + 15} calories). Each plan must include ALL exercises from the list above (exactly {len(recommended_exercises)} exercises), ensuring that every exercise in the list is used in each plan. Each plan should be independent, meaning I can choose any single plan to achieve my calorie-burning goal without combining plans.
 
-            Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, RepsOrTimePerSet, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan must include the plan name (name), the plan description (description), the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
+            Each plan must include the following details for each exercise: Name, ExerciseType, ExperienceLevel, Sets, Reps, TimePerSetSeconds, RestBetweenSetsSeconds, TotalActiveTimeMinutes, TotalTimeWithRestMinutes, and CaloriesBurned. Additionally, each plan must include the plan name (name), the plan description (description), the total calories burned (total_calories_burned) and total completion time (total_completion_time_minutes). The output format must be JSON as follows:
 
             ```json
             {{
@@ -388,7 +388,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
                 "ExerciseType": "",
                 "ExperienceLevel": "",
                 "Sets": 0,
-                "RepsOrTimePerSet": "",
+                "Reps": 0,
                 "TimePerSetSeconds": 0,
                 "RestBetweenSetsSeconds": 0,
                 "TotalActiveTimeMinutes": 0,
@@ -404,34 +404,59 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
             ```
             Follow these steps to create the workout plans:
 
-            Include all exercises in each plan:
-            Each workout plan must include ALL {len(recommended_exercises)} exercises listed above.
-            Do not skip any exercise; every plan must use exactly these {len(recommended_exercises)} exercises in the order they are listed.
-            Calculate the required active time:
+            1. Include all exercises in each plan:
+            Each workout plan must include ALL {len(recommended_exercises)} exercises listed above. Do not skip any exercise; every plan must use exactly these {len(recommended_exercises)} exercises in the order they are listed.
+
+            2. Calculate the required active time:
             The average calories burned per minute across all exercises is approximately {sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises):.3f} cal/min.
             To burn {target_calories} calories, the total active time needed is approximately {target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises)):.1f} minutes.
             Distribute this time equally across the {len(recommended_exercises)} exercises, so each exercise should have a TotalActiveTimeMinutes of approximately {(target_calories / (sum(row['Predicted Calories per Minute'] for _, row in recommended_exercises.iterrows() if pd.notna(row['Predicted Calories per Minute'])) / len(recommended_exercises))) / len(recommended_exercises):.1f} minutes.
-            Adjust Sets and TimePerSetSeconds:
-            For each exercise, adjust the Sets and TimePerSetSeconds to achieve the required TotalActiveTimeMinutes. For example:
-            If TimePerSetSeconds = 60 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 60 seconds/set.
-            If TimePerSetSeconds = 45 seconds, then Sets = (TotalActiveTimeMinutes × 60 seconds/minute) ÷ 45 seconds/set.
-            Choose TimePerSetSeconds between 30 and 120 seconds, and calculate Sets accordingly to match the required TotalActiveTimeMinutes.
-            Set rest time:
-            Use a reasonable RestBetweenSetsSeconds for each exercise (e.g., 30–90 seconds, depending on the exercise type). For example:
-            Warmup, Activation, Stretching, SMR: 30 seconds.
-            Strength, Conditioning, Plyometrics, Olympic Weightlifting: 60–90 seconds.
-            Calculate exercise details:
-            TotalActiveTimeMinutes: Calculate as (Sets × TimePerSetSeconds) ÷ 60, and ensure it matches the required value from step 2.
-            TotalTimeWithRestMinutes: Calculate as (Sets × TimePerSetSeconds + (Sets - 1) × RestBetweenSetsSeconds) ÷ 60.
-            CaloriesBurned: Calculate as TotalActiveTimeMinutes × (calories burned per minute for that exercise). This is the total calories burned for the exercise.
-            Calculate workout plan totals:
-            total_calories_burned: Must be the sum of CaloriesBurned of all exercises in the plan.
-            total_completion_time_minutes: Must be the sum of TotalTimeWithRestMinutes of all exercises in the plan.
-            Workout plan name and description:
-            name: Create a concise and motivating workout plan name that reflects the goal (e.g., "Fat Burn Circuit", "Cardio Shred", "Full Body Blast", "Strength Builder").
-            description: Write a short and engaging description (1–2 sentences) that summarizes the plan’s goal, targeted fitness level, and what the user will achieve after completing it. 
-            Ensure the exercises are suitable for a {experience_level}, and accurately calculate calories based on the exercise duration and calories burned per minute. If the total_calories_burned for any plan is not within {target_calories - 15} to {target_calories + 15} calories, adjust the Sets or TimePerSetSeconds to meet this requirement. Output the result as a JSON array containing {num_combinations} workout plans. Ensure the output is a valid JSON string without any additional text before or after the JSON.
-            """
+
+            3. Adjust Sets, Reps and TimePerSetSeconds:
+
+            Choose TimePerSetSeconds between 30 and 120 seconds.
+
+            For time-based exercises (e.g., planks), use TimePerSetSeconds and calculate Sets as:
+            Sets = TotalActiveTimeMinutes × 60 / TimePerSetSeconds.
+
+            For rep-based exercises, use Reps and calculate Sets assuming average rep duration (e.g., 2.5 seconds/rep):
+            TotalTime = Sets × Reps × 2.5 seconds. Adjust Sets accordingly to match TotalActiveTimeMinutes.
+
+            Only one of Reps or TimePerSetSeconds should be > 0 per exercise.
+
+            4. Set rest time:
+
+            Use realistic RestBetweenSetsSeconds based on ExerciseType:
+
+            Warmup, Activation, Stretching, SMR: 30 seconds
+
+            Strength, Conditioning, Plyometrics, Olympic Weightlifting: 60–90 seconds
+
+            5. Calculate exercise details:
+
+            TotalActiveTimeMinutes = (Sets × TimePerSetSeconds) / 60 (or equivalent using Reps)
+
+            TotalTimeWithRestMinutes = (Sets × TimePerSetSeconds + (Sets - 1) × RestBetweenSetsSeconds) / 60
+
+            CaloriesBurned = TotalActiveTimeMinutes × calories burned per minute of the exercise
+
+            6. Calculate workout plan totals:
+
+            total_calories_burned = Sum of CaloriesBurned across all exercises
+
+            total_completion_time_minutes = Sum of TotalTimeWithRestMinutes of all exercises
+
+            6.5. Calorie balancing step:
+            After completing the plan, if total_calories_burned is not within ±15 calories of the target ({target_calories - 15} to {target_calories + 15}), proportionally adjust TotalActiveTimeMinutes for each exercise. You may adjust Sets or TimePerSetSeconds slightly (within 5–10%) to bring the total back into range while maintaining safe and realistic values.
+
+            7. Workout plan name and description:
+
+            name: Concise and motivating name that reflects the plan’s goal (e.g., "Fat Burn Circuit", "Cardio Shred", "Strength Builder")
+
+            description: 1–2 sentence summary of the plan’s goal, target audience, and what the user will achieve.
+
+            Ensure the output is a valid JSON array containing exactly {num_combinations} plans, and no extra explanation or text before or after the JSON output.
+"""
     try:
         model = genai.GenerativeModel('gemini-2.0-flash', generation_config=GenerationConfig(temperature=0.7))
         response = model.generate_content(prompt)
@@ -481,7 +506,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
                 raise ValueError("Exercises in workout plan must be a list")
             for exercise in plan["exercises"]:
                 required_exercise_fields = [
-                "Name", "ExerciseType", "ExperienceLevel", "Sets", "RepsOrTimePerSet",
+                "Name", "ExerciseType", "ExperienceLevel", "Sets", "Reps",
                 "TimePerSetSeconds", "RestBetweenSetsSeconds", "TotalActiveTimeMinutes",
                 "TotalTimeWithRestMinutes", "CaloriesBurned"
                 ]
