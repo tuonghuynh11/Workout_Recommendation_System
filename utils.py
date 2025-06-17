@@ -246,6 +246,7 @@ def generate_workout_plans_with_gemini(new_user_data, recommended_exercises, tar
     # Chuẩn bị danh sách bài tập từ recommended_exercises
     exercises_str = "\n".join([
         f"- {row['Name']} ({row['Exercise Type Original']}, {row['Experience Level Original']}, {row['Predicted Calories per Minute']} cal/min)."
+        # f"- {row['Name']} ({row['Exercise Type Original']}, {row['Experience Level Original']}"
         for _, row in recommended_exercises.iterrows()
     ])
 

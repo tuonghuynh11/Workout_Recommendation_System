@@ -154,7 +154,7 @@ async def generate_workout_plan(request: WorkoutPlanRequest):
         raise HTTPException(status_code=400, detail=f"No exercises found for {experience_level} level")
 
     # Đọc lại file exercises_dataset.csv để lấy thông tin đầy đủ
-    exercises_dataset = pd.read_csv("./data/exercises_dataset_final.csv")
+    exercises_dataset = pd.read_csv("./data/exercises_dataset_final_v2.csv")
 
     # Đổi tên cột Muscle Group Image-src thành MuscleGroupImageSrc để khớp với response
     if 'Muscle Group Image-src' in exercises_dataset.columns:
@@ -315,7 +315,7 @@ async def get_recommend_exercises(request: RecommendExerciseRequest):
         raise HTTPException(status_code=400, detail=f"No exercises found for {experience_level} level")
 
     # Đọc lại file exercises_dataset.csv để lấy thông tin đầy đủ
-    exercises_dataset = pd.read_csv("./data/exercises_dataset_final.csv")
+    exercises_dataset = pd.read_csv("./data/exercises_dataset_final_v2.csv")
 
     # Đổi tên cột Muscle Group Image-src thành MuscleGroupImageSrc để khớp với response
     if 'Muscle Group Image-src' in exercises_dataset.columns:
